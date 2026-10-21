@@ -57,14 +57,20 @@ invalid_callback = "[]"
 
 
 def run_module(codefile: str, module: str, extra: str = ""):
-
+    # Build command string; only prepend a space if extra is provided
+    cmd_str = f"{sys.executable} -m {module} {codefile}{(' ' + extra) if extra else ''}"
     cmd = shlex.split(
-        f"{sys.executable} -m {module} {codefile}{extra}",
+        cmd_str,
         posix=sys.platform != "win32",
         comments=True,
     )
 
     env = os.environ.copy()
+    # Ensure PYTHONPATH contains the repository root so type-checkers (like pyright)
+    # can resolve generated or installed packages referenced by the tests.
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    existing_py = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [repo_root, existing_py]))
 
     proc = subprocess.Popen(
         cmd,
@@ -84,7 +90,15 @@ def assert_output(
     expected_status=0,
     module="pyright",
 ):
-    output, error, status = run_module(codefile, module)
+    # When running pyright, provide a pythonpath that includes the repository root
+    # so pyright can resolve generated or local packages used by the tests.
+    extra = ""
+    if module == "pyright":
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        # Quote the path in case it contains spaces; run_module will add spacing as needed
+        extra = f'--pythonpath "{repo_root}"'
+
+    output, error, status = run_module(codefile, module, extra)
     assert (
         status == expected_status
     ), f"Status: {status}\nOutput: {output}\nError: {error}\nCode: {code}"
